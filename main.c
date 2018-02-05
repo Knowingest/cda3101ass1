@@ -2,22 +2,28 @@
 #include <stdio.h>
 #include <string.h>
 
-
-
 struct mipsline{
-    short haslabel;
-    short address;
-    char mips[80];      //original command stored in cstring
+    short haslabel;           //0 or 1
+    short address;           //address (index * 4)
+    char mips[80];          //original command stored in cstring
     char labelname[20];    //label (if any)
     short command;        //refers to instruction type
 };
+
+struct symboltable{
+    short address;
+    char labelname[20];
+};
+
+void read_data(struct mipsline* m, struct symboltable* s, unsigned short amount);
+void str_copy(char* src, char* dst, unsigned short amount);
 
 void null_line(struct mipsline* m)
 {
     m->haslabel = 0;
     m->address = -1;
-    m->mips[0] = '\n';
-    m->labelname[0] = '\n';
+    m->mips[0] = (char) 0;
+    m->labelname[0] = (char) 0;
     m->command = 0;
 }
 
@@ -36,7 +42,7 @@ short findlabel(char* c)
     for(i = 0; i < 20; i++)         //Original concept:  for(i = 0; c[i] != '\n'; i++)  < --- doesn't work for some reason, crashes immediately
     {
         if (c[i] == ':') return 1;
-        if (c[i] == '\n') return 0;
+        if (c[i] == (char) 0) return 0;
     }
     return 0;
 }
@@ -52,31 +58,62 @@ void copylabel(char* src, char* dst)
 
 int main(void)
 {
+    //create main array
     struct mipsline data[100];
+    struct symboltable symbols[100];
 
+    //zero out the array of structures
     short i;
     for (i = 0; i < 100; i++)
     {
         null_line(&data[i]);
     }
 
-    for (i = 0; i < 100; i++)
-    {
-        scanf(" %[^\n]", data[i].mips);
-        data[i].haslabel = findlabel(data[i].mips);
-        if (data[i].haslabel == 1) copylabel(data[i].mips, data[i].labelname);
-        data[i].address = i * 4;
-    }
+        //this reads 100 lines into our tables
+    read_data(data, symbols, 100);
 
     for (i = 0; i < 100; i++)
     {
-        if (data[i].address != -1)
+        if (data[i].mips[0] != (char) 0)
         {
-            printf("%s\n", data[i].mips);
-            if (data[i].haslabel == 1) printf("%s\n", data[i].labelname);
+            printf("0x%08x : %s\n", data[i].address, data[i].mips);
         }
     }
 
-
     return 0;
+}
+
+void str_copy(char* src, char* dst, unsigned short amount)
+{
+    unsigned short i;
+    for (i = 0; i < amount; i++)
+    {
+        dst[i] = src[i];
+    }
+}
+
+
+void read_data(struct mipsline* m, struct symboltable* s, unsigned short amount)
+{
+    unsigned short symbol_index = 0;
+    unsigned short i;
+
+    for (i = 0; i < amount; i++)
+    {
+        scanf(" %[^\n]", m[i].mips);                 //copy mips code
+        m[i].haslabel = findlabel(m[i].mips);    //determine if mips line starts with a label
+
+            //if the line has a label, record the name of the label seperately.
+        if (m[i].haslabel == 1)
+            {
+                        //copy label from mips code into seperate column
+                copylabel(m[i].mips, m[i].labelname);
+               
+                        //add address|labelname pair into the symbol table
+                s[symbol_index].address = m[i].address;
+                str_copy(m[i].labelname, s[symbol_index++].labelname, 20);
+            }        
+                          //^increment the index for symbol table
+        m[i].address = i * 4;    //address = i * 4
+    }
 }
