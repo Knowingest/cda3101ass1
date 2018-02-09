@@ -4,12 +4,15 @@
 #include <ctype.h>
 
 struct mipsline{
-    short haslabel;           //0 or 1
-    short address;           //address (index * 4)
-    char mips[80];          //original command stored in cstring
+    short haslabel;             //0 or 1
+    short address;             //address
+    short laddress;           //address of second line
+    char mips[80];           //original command stored in cstring
+    char lamips[80];        //seperate line of mips for lui commands
     char labelname[20];    //label (if any)
     short labeladdress;   //the address that the label points to
     int binary;          //the binary translation of the mips code
+    int labinary;       //binary translation for second line
 };
 
 struct symboltable{
@@ -70,7 +73,6 @@ int main(void)
     for (i = 0; i < 100; i++)
     {
         if (data[i].mips[0] == (char) 0) break; //null character signals end of list
-
         printf("0x%08x : %s : 0x%08x\n", data[i].address, data[i].mips, data[i].binary);
     }
 
@@ -81,9 +83,12 @@ void null_line(struct mipsline* m)
 {
     m->haslabel = 0;
     m->address = -1;
+    m->laddress = -1;
     m->mips[0] = (char) 0;
+    m->lamips[0] = (char) 0;
     m->labelname[0] = (char) 0;
     m->binary = 0;
+    m->labinary = 0;
 }
 
 void str_copy(char* src, char* dst, unsigned short amount)
@@ -177,7 +182,6 @@ void translate(struct mipsline* m, struct symboltable* s, unsigned short amount)
             else 
             {
                 m[i].binary = add(c);
-                printf("found add\n");
                 continue;
             }
         }
@@ -245,23 +249,17 @@ int add(char* c)
     int result = 32;    //opcode is 0 but func is 32
     
     while (c[i] != '$')
-    {
         ++i;
-    }
     result = result | (regnum(&c[i]) << 11); //add $rd to the result
     ++i;
 
     while (c[i] != '$')
-    {
         ++i;
-    }
     result = result | (regnum(&c[i]) << 21); //add $rs
     ++i;
 
     while (c[i] != '$')
-    {
         ++i;
-    }
     result = result | (regnum(&c[i]) << 16); // add $rt
     return result;
 }
@@ -301,23 +299,23 @@ int nor(char* c)
     {
         ++i;
     }
-    result = result | (regnum(&c[i]) << 16); //$rd
+    result = result | (regnum(&c[i]) << 11); //$rd
     ++i;
 
     while (c[i] != '$')
     {
         ++i;
     }
-    result = result | (regnum(&c[i]) << 26); //$rs
+    result = result | (regnum(&c[i]) << 21); //$rs
     ++i;
 
     while (c[i] != '$')
     {
         ++i;
     }
-    result = result | (regnum(&c[i]) << 21); //$rt
+    result = result | (regnum(&c[i]) << 16); //$rt
 
-    return result
+    return result;
 }
 int ori(char* c)
 {
@@ -325,7 +323,30 @@ int ori(char* c)
 }
 int sll(char* c)
 {
-    return 0;
+    int result = 0;
+
+    while (c[i] != '$')
+    {
+        ++i;
+    }
+    result = result | (regnum(&c[i]) << 11); //$rd
+    ++i;
+
+    while (c[i] != '$')
+    {
+        ++i;
+    }
+    result = result | (regnum(&c[i]) << 16); //$rt
+    ++i;
+
+    while (c[i] != ',')
+    {
+        ++i;
+    }
+    ++i;
+    result = result | (atoi(&c[i]) << 6); //shamt
+
+    return result;
 }
 int lui(char* c)
 {
