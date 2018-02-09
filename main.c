@@ -130,15 +130,28 @@ void copylabel(char* src, char* dst)
 
 void read_data(struct mipsline* m, struct symboltable* s, unsigned short amount)
 {
-    unsigned short symbol_index = 0;
-    unsigned short i;
+	unsigned short directive_index = -1;  //-1 means wer are at the start, 0 means .text, 1 means .data
+    unsigned short symbol_index = 0;	 //used to count through the symbol table
+    unsigned short address_index = 0;   //we need a seperate counter because the la command counts as two lines
+    unsigned short i;				   //for loop index
+    char* c;
 
     for (i = 0; i < amount; i++)
     {
         scanf(" %[^\n]", m[i].mips);                 //copy mips code
-        if (m[i].mips[0] == (char) 0) break;
-        m[i].haslabel = findlabel(m[i].mips);    //determine if mips line starts with a label
+        if (m[i].mips[0] == (char) 0) break;		//if we just read NOTHING, break
+        m[i].haslabel = findlabel(m[i].mips);      //determine if mips line starts with a label (0 or 1)
+        
+        	//check if the line we read had a directive
+        if (strchr(m[i].mips, '.') != 0)
+        {
+        	++directive_index;
+        	if (directive_index >= 1)
+        	{
 
+        	}
+        }
+        else
             //if the line has a label, record the name of the label seperately.
         if (m[i].haslabel == 1)
             {
@@ -150,7 +163,9 @@ void read_data(struct mipsline* m, struct symboltable* s, unsigned short amount)
                 str_copy(m[i].labelname, s[symbol_index++].labelname, 20);
             }        
                           //^increment the index for symbol table
-        m[i].address = i * 4;    //address = i * 4
+
+        m[i].address = address_index++ * 4;    //address = i * 4
+        
     }
 }
 
