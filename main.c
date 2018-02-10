@@ -373,7 +373,7 @@ int addi(char* c)
 
     while (c[i] != ',') ++i;
     ++i;
-    result = result | atoi(&c[i]);
+    result = result | (atoi(&c[i] & 65535));
     return result;
 }
 int nor(char* c)
