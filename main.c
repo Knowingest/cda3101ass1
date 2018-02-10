@@ -42,7 +42,7 @@ int lui(char* c);
 int sw(char* c);
 int lw(char* c);
 int bne(char* c, int address, struct symboltable* s);
-int jump(char* c, int address, struct symboltable* s);
+int jump(char* c, struct symboltable* s);
 void la(char* c, struct mipsline* m, struct symboltable* s);
 
 void str_copy(char* src, char* dst, unsigned short amount);
@@ -160,31 +160,38 @@ void read_data(struct mipsline* m, struct symboltable* s, unsigned short amount)
 {
 	short directive_index = -1;  //-1 means wer are at the start, 0 means .text, 1 means .data
     unsigned short symbol_index = 0;	 //used to count through the symbol table
-    unsigned short address_index = 0;   //we need a seperate counter because the la command counts as two lines
+    unsigned int address_index = 0;   //we need a seperate counter because the la command counts as two lines
+    unsigned int data_offset = 0;   //offset for the extra data allocated in the .data section
+
     unsigned short i;				   //for loop index
     char* c;
 
     //////////////////
-    //.text loop
+    //main loop
     //////////////////
     for (i = 0; i < amount; i++)
     {
-        if (directive_index >= 1)
-        {
-
-        }
-
         scanf(" %[^\n]", m[i].mips);                 //copy mips code
         if (m[i].mips[0] == (char) 0) break;		//if we just read NOTHING, break
-        
-        printf("found line: %s\n", m[i].mips);
+        //printf("found line: %s\n", m[i].mips);
 
-        if (directive_index >= 1)
+        if (directive_index >= 1)   //this means we're in the .data section
         {
             m[i].haslabel = 1;
             copylabel(m[i].mips, m[i].labelname);
+            m[i].address = (address_index++ * 4) + data_offset;
 
-            m[i].address = address_index++ * 4;
+            c = strchr(m[i].mips, '.');
+            if (c[1] == 's')
+            {
+                strchr(c, ' '); //c now points to start of n (".space n")
+                c = &c[1];
+                data_offset = data_offset + (atoi(c)); //add n bytes to the address_index
+            }
+            else
+            {
+                data_offset = data_offset + 4;
+            }
 
             copylabel(m[i].labelname, s[symbol_index].labelname);
             s[symbol_index++].address = m[i].address;
@@ -253,17 +260,12 @@ void translate(struct mipsline* m, struct symboltable* s, unsigned short amount)
         if (m[i].mips[0] == (char) 0) break;    //break if we are at an empty line
         c = m[i].mips;
 
-        
-
         if (m[i].haslabel == 1)
         {
             c = strchr(c, ':');     //skip to after the label
             while (!isalpha(*c))
                 c = &c[1];
         }
-
-
-
         //printf("line %d starts with character %c\n", i, *c);
 
         if (*c == 'a')
@@ -321,7 +323,7 @@ void translate(struct mipsline* m, struct symboltable* s, unsigned short amount)
             m[i].binary = bne(c, m[i].address, s);
             continue;
         }
-        m[i].binary = jump(c, m[i].address, s);
+        m[i].binary = jump(c, s);
     }
 
 }
@@ -343,18 +345,15 @@ int add(char* c)
     int i = 0;
     int result = 32;    //opcode is 0 but func is 32
     
-    while (c[i] != '$')
-        ++i;
+    while (c[i] != '$') ++i;
     result = result | (regnum(&c[i]) << 11); //add $rd to the result
     ++i;
 
-    while (c[i] != '$')
-        ++i;
+    while (c[i] != '$') ++i;
     result = result | (regnum(&c[i]) << 21); //add $rs
     ++i;
 
-    while (c[i] != '$')
-        ++i;
+    while (c[i] != '$') ++i;
     result = result | (regnum(&c[i]) << 16); // add $rt
     return result;
 }
@@ -364,18 +363,15 @@ int addi(char* c)
     int i = 0;
     int result = 8 << 26; //start with opcode
 
-    while (c[i] != '$')
-        ++i;
+    while (c[i] != '$') ++i;
     result = result | (regnum(&c[i]) << 16); //add $rt
     ++i;
 
-    while (c[i] != '$')
-        ++i;
+    while (c[i] != '$') ++i;
     result = result | (regnum(&c[i]) << 21); //add $rs
     ++i;
 
-    while (c[i] != ',')
-        ++i;
+    while (c[i] != ',') ++i;
     ++i;
     result = result | atoi(&c[i]);
     return result;
@@ -395,18 +391,15 @@ int sll(char* c)
     int i = 0;
     int result = 0;
 
-    while (c[i] != '$')
-        ++i;
+    while (c[i] != '$') ++i;
     result = result | (regnum(&c[i]) << 11); //$rd
     ++i;
 
-    while (c[i] != '$')
-        ++i;
+    while (c[i] != '$') ++i;
     result = result | (regnum(&c[i]) << 16); //$rt
     ++i;
 
-    while (c[i] != ',')
-        ++i;
+    while (c[i] != ',') ++i;
     ++i;
     result = result | (atoi(&c[i]) << 6); //shamt
 
@@ -422,8 +415,7 @@ int lui(char* c)
     result = result | (regnum(&c[i]) << 16); //add $rt
     ++i;
 
-    while (c[i] != ',')
-        ++i;
+    while (c[i] != ',') ++i;
     ++i;
     return (result | (atoi(&c[i]) & 65535));
 }
@@ -435,18 +427,16 @@ int lw(char* c)
 {
     int i = 0;
     int result = 35 << 26;
-    while (c[i] != '$')
-        ++i;
+    
+    while (c[i] != '$') ++i;
     result = result | (regnum(&c[i]) << 16); //add $rt
     ++i;
 
-    while (c[i] != ',')
-        ++i;
+    while (c[i] != ',') ++i;
     ++i;
     result = result | (atoi(&c[i])); //add immediate
     
-    while (c[i] != '$')
-        ++i;
+    while (c[i] != '$') ++i;
     result = result | (regnum(&c[i]) << 21); //add $rs
     ++i;
 
@@ -459,18 +449,15 @@ int bne(char* c, int address, struct symboltable* s)
     int result = (5 << 26);
     int offset = 0;
 
-    while (c[i] != '$')
-        ++i;
+    while (c[i] != '$') ++i;
     result = result | (regnum(&c[i]) << 21); //add $rs
     ++i;
 
-    while (c[i] != '$')
-        ++i;
+    while (c[i] != '$') ++i;
     result = result | (regnum(&c[i]) << 16); //add $rt
     ++i;
 
-    while (c[i] != ',')
-        ++i;
+    while (c[i] != ',') ++i;
     ++i;
 
     //printf("%s\n", &c[i]);
@@ -483,35 +470,33 @@ int bne(char* c, int address, struct symboltable* s)
             offset = (s[j].address - address) / 4;
             break;
         }
-        else printf("%s and %s don't match\n", &c[i], s[j].labelname);
     }
 
     offset = offset & 65535;    //16 zeroes and 16 ones
     return (result | offset);
 }
-int jump(char* c, int address, struct symboltable* s)
+int jump(char* c, struct symboltable* s)
 {
     int i = 0;
     int j = 0;
     int result = 2 << 26;
-    int offset = 0;
+    int address = 0;
 
-    while (c[i] != 'j')
-        ++i;
-    ++i;
+    while (c[i] != 'j') ++i;
+    ++i; ++i;
+    printf("jump string is: %s\n", &c[i]);
    
     for (j = 0; j < 100; j++)
     {
         //if (s[j].address == -1) printf("no match in symboltable for bne instruction.  this is bad\n");
         if (strcmp(s[j].labelname, &c[i]) == 0)
         {
-            offset = (s[j].address - address) / 4;
+            address = s[j].address;
             break;
         }
-        else printf("%s and %s don't match\n", &c[i], s[j].labelname);
     }
 
-    return result;
+    return result | (address & 67108863);
 }
 void la(char* c, struct mipsline* m, struct symboltable* s)
 {
@@ -521,13 +506,11 @@ void la(char* c, struct mipsline* m, struct symboltable* s)
     int finalreg = 0;
     int address;
 
-    while (c[i] != '$')
-        ++i;
+    while (c[i] != '$') ++i;
     finalreg = regnum(&c[i]); //find the register we use for the ori
     ++i;
 
-    while (c[i] != ',')
-        ++i;
+    while (c[i] != ',') ++i;
     ++i;
                 //lui          //$1
     m->binary = (15 << 26) | (1 << 16);
