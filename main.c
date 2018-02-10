@@ -6,13 +6,13 @@
 struct mipsline{
     short haslabel;             //0 or 1
     short address;             //address
-    short laddress;           //address of second line
+    short laddress;           //address of second line (for la)
     char mips[80];           //original command stored in cstring
     char lamips[80];        //seperate line of mips for lui commands
     char labelname[20];    //label (if any)
     short labeladdress;   //the address that the label points to
     int binary;          //the binary translation of the mips code
-    int labinary;       //binary translation for second line
+    int labinary;       //binary translation for second line (for la)
 };
 
 struct symboltable{
@@ -41,12 +41,13 @@ int sll(char* c);
 int lui(char* c);
 int sw(char* c);
 int lw(char* c);
-int bne(char* c);
-int jump(char* c);
-int la(char* c);
+int bne(char* c, int address, struct symboltable* s);
+int jump(char* c, int address, struct symboltable* s);
+int la(char* c, struct mipsline* m, struct symboltable* s);
 
 void str_copy(char* src, char* dst, unsigned short amount);
 void null_line(struct mipsline* m);
+void null_symbol(struct symboltable* s);
 short regnum(char* c);
 short findlabel(char* c);
 void copylabel(char* src, char* dst);
@@ -64,6 +65,7 @@ int main(void)
     for (i = 0; i < 100; i++)
     {
         null_line(&data[i]);
+        null_symbol(&symbols[i]);
     }
 
         //this reads 100 lines into our tables
@@ -72,8 +74,9 @@ int main(void)
 
     for (i = 0; i < 100; i++)
     {
-        if (data[i].mips[0] == (char) 0) break; //null character signals end of list
-        printf("0x%08x : %s : 0x%08x\n", data[i].address, data[i].mips, data[i].binary);
+        if (data[i].binary == 0) break;
+        //printf("0x%08x : %s : 0x%08x\n", data[i].address, data[i].mips, data[i].binary);
+        printf("0x%08x : 0x%08x\n", data[i].address, data[i].binary);
     }
 
     return 0;
@@ -89,6 +92,12 @@ void null_line(struct mipsline* m)
     m->labelname[0] = (char) 0;
     m->binary = 0;
     m->labinary = 0;
+}
+
+void null_symbol(struct symboltable* s)
+{
+    s->address = 0;
+    s->labelname[0] = 0;
 }
 
 void str_copy(char* src, char* dst, unsigned short amount)
@@ -130,43 +139,86 @@ void copylabel(char* src, char* dst)
 
 void read_data(struct mipsline* m, struct symboltable* s, unsigned short amount)
 {
-	unsigned short directive_index = -1;  //-1 means wer are at the start, 0 means .text, 1 means .data
+	short directive_index = -1;  //-1 means wer are at the start, 0 means .text, 1 means .data
     unsigned short symbol_index = 0;	 //used to count through the symbol table
     unsigned short address_index = 0;   //we need a seperate counter because the la command counts as two lines
     unsigned short i;				   //for loop index
     char* c;
 
+    //////////////////
+    //.text loop
+    //////////////////
     for (i = 0; i < amount; i++)
     {
+        if (directive_index >= 1)
+        {
+
+        }
+
         scanf(" %[^\n]", m[i].mips);                 //copy mips code
         if (m[i].mips[0] == (char) 0) break;		//if we just read NOTHING, break
-        m[i].haslabel = findlabel(m[i].mips);      //determine if mips line starts with a label (0 or 1)
         
+        printf("found line: %s\n", m[i].mips);
+
+        if (directive_index >= 1)
+        {
+            m[i].haslabel = 1;
+            copylabel(m[i].mips, m[i].labelname);
+
+            m[i].address = address_index++ * 4;
+
+            copylabel(m[i].labelname, s[symbol_index].labelname);
+            s[symbol_index++].address = m[i].address;
+
+            continue;
+        }
+
+
         	//check if the line we read had a directive
         if (strchr(m[i].mips, '.') != 0)
         {
-        	++directive_index;
-        	if (directive_index >= 1)
-        	{
-
-        	}
+            printf("found directive\n");
+        	if (++directive_index >= 1)
+                continue;  //<--- we have now entered .data
+            --i;    //semantically speaking: ignore this line, go scanf again
+            continue;
         }
-        else
-            //if the line has a label, record the name of the label seperately.
-        if (m[i].haslabel == 1)
-            {
-                        //copy label from mips code into seperate column
-                copylabel(m[i].mips, m[i].labelname);
-               
-                        //add address|labelname pair into the symbol table
-                s[symbol_index].address = m[i].address;
-                str_copy(m[i].labelname, s[symbol_index++].labelname, 20);
-            }        
-                          //^increment the index for symbol table
 
-        m[i].address = address_index++ * 4;    //address = i * 4
-        
+        /////////////
+        //find label
+        //////////////
+            if (strchr(m[i].mips, ':') != 0)
+                {
+                    m[i].haslabel = 1;
+                    copylabel(m[i].mips, m[i].labelname);
+                }       
+
+        ///////////////////
+        //determine address
+        ///////////////////
+            m[i].address = address_index++ * 4; //main address
+
+            c = m[i].mips;     //point to start of code
+
+            if (m[i].haslabel == 1)
+                    c = strchr(m[i].mips, ':'); //skip to the ':' if this line has a label
+
+            c = strchr(c, 'l');             //account for la commands having two addresses
+            if (c != 0)
+                if (c[1] == 'a')        //we know we're past the label, so no false positives
+                    m[i].laddress = address_index++ * 4;
+
+        //////////////////////
+        //symbol table stuff
+        /////////////////////
+            if (m[i].haslabel == 1)
+                {
+                    copylabel(m[i].labelname, s[symbol_index].labelname);
+                    s[symbol_index++].address = m[i].address;
+                }
+
     }
+    printf("end of read loop\n");
 }
 
 void translate(struct mipsline* m, struct symboltable* s, unsigned short amount)
@@ -176,16 +228,21 @@ void translate(struct mipsline* m, struct symboltable* s, unsigned short amount)
     char* c;
     for (i = 0; i < amount; i++)
     {
-        printf("m[i].mips[0] == %c\n", m[i].mips[0]);
-        if (m[i].mips[0] == (char) 0) break;
-        c = &m[i].mips[0];
+        if (m[i].mips[0] == (char) 0) break;    //break if we are at an empty line
+        c = m[i].mips;
+
+        
 
         if (m[i].haslabel == 1)
         {
-        while (!isalpha(*c))      //increment to start of instruction
-            c = &c[++j];
-        c = &c[++j];
+            c = strchr(c, ':');     //skip to after the label
+            while (!isalpha(*c))
+                c = &c[1];
         }
+
+
+
+        //printf("line %d starts with character %c\n", i, *c);
 
         if (*c == 'a')
         {
@@ -234,16 +291,17 @@ void translate(struct mipsline* m, struct symboltable* s, unsigned short amount)
             }
             else
             {
-                m[i].binary = la(c);
+                m[i].binary = la(c, &m[i], s);
                 continue;
             }
         if (*c == 'b')
         {
-            m[i].binary = bne(c);
+            m[i].binary = bne(c, m[i].address, s);
             continue;
         }
-        m[i].binary = jump(c);
+        m[i].binary = jump(c, m[i].address, s);
     }
+
 }
 /*
 #1  ADD     R   32  add $rd,$rs,$rt
@@ -285,79 +343,48 @@ int addi(char* c)
     int result = 8 << 26; //start with opcode
 
     while (c[i] != '$')
-    {
         ++i;
-    }
     result = result | (regnum(&c[i]) << 16); //add $rt
     ++i;
 
     while (c[i] != '$')
-    {
         ++i;
-    }
     result = result | (regnum(&c[i]) << 21); //add $rs
     ++i;
 
     while (c[i] != ',')
-    {
         ++i;
-    }
     ++i;
     result = result | atoi(&c[i]);
     return result;
 }
 int nor(char* c)
 {
-    int result = 39;
-
-    while (c[i] != '$')
-    {
-        ++i;
-    }
-    result = result | (regnum(&c[i]) << 11); //$rd
-    ++i;
-
-    while (c[i] != '$')
-    {
-        ++i;
-    }
-    result = result | (regnum(&c[i]) << 21); //$rs
-    ++i;
-
-    while (c[i] != '$')
-    {
-        ++i;
-    }
-    result = result | (regnum(&c[i]) << 16); //$rt
-
-    return result;
+    unsigned int result = 39;
+    return (result | add(c));     //we just change the opcode of add() slightly
 }
 int ori(char* c)
 {
-    int result = 13 << 26;
+    int result = 13 << 26;          //we can use addi() because these are both i types
+    return result | addi(c);    //overlay the opcode over the result from addi
 }
 int sll(char* c)
 {
+    int i = 0;
     int result = 0;
 
     while (c[i] != '$')
-    {
         ++i;
-    }
     result = result | (regnum(&c[i]) << 11); //$rd
     ++i;
 
     while (c[i] != '$')
-    {
         ++i;
-    }
     result = result | (regnum(&c[i]) << 16); //$rt
     ++i;
 
     while (c[i] != ',')
-    {
         ++i;
-    }
     ++i;
     result = result | (atoi(&c[i]) << 6); //shamt
 
@@ -365,6 +392,17 @@ int sll(char* c)
 }
 int lui(char* c)
 {
+    int i = 0;
+    int result = 15 << 26;
+    while (c[i] != '$')
+        ++i;
+    result = result | (regnum(&c[i]) << 16); //add $rt
+    ++i;
+
+    while (c[i] != ',')
+        ++i;
+    ++i;
+    result = result | atoi(&c[i]);
     return 0;
 }
 int sw(char* c)
@@ -375,15 +413,73 @@ int lw(char* c)
 {
     return 0;
 }
-int bne(char* c)
+int bne(char* c, int address, struct symboltable* s)
+{
+    int i = 0;
+    int result = (5 << 26);
+    int offset = 0;
+
+    while (c[i] != '$')
+        ++i;
+    result = result | (regnum(&c[i]) << 21); //add $rs
+    ++i;
+
+    while (c[i] != '$')
+        ++i;
+    result = result | (regnum(&c[i]) << 16); //add $rt
+    ++i;
+
+    while (c[i] != ',')
+        ++i;
+    ++i;
+
+    for (i = 0; i < 100; i++)
+    {
+        if (s[i].address == 0) printf("no match in symboltable for bne instruction.  this is bad\n");
+        if (strcmp(s[i].labelname, c) == 0)
+        {
+            offset = (s[i].address - address) / 4;
+            break;
+        }
+    }
+
+    offset = offset & 65535;    //16 zeroes and 16 ones
+    return (result | offset);
+
+    return 0;
+}
+int jump(char* c, int address, struct symboltable* s)
 {
     return 0;
 }
-int jump(char* c)
+int la(char* c, struct mipsline* m, struct symboltable* s)
 {
-    return 0;
-}
-int la(char* c)
-{
+    int i = 0;
+    int result = 0;
+    int finalreg = 0;
+    int address;
+
+    while (c[i] != '$')
+        ++i;
+    finalreg = regnum(c); //find the register we use for the ori
+    ++i;
+
+    while (c[i] != ',')
+        ++i;
+    ++i;
+                //lui          //$1
+    m->binary = (15 << 26) | (1 << 16);
+                    //ori          //register       /$1
+    m->labinary = (13 << 26) | (finalreg << 26) | (1 << 16);
+
+    for (i = 0; i < 100; i++)
+    {
+        if (s[i].address == 0) printf("no match in symboltable for la instruction.  this is bad\n");
+        if (strcmp(s[i].labelname, c) == 0)
+        {
+            
+        }
+    }
+
     return 0;
 }

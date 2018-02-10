@@ -1,7 +1,8 @@
-    addi $0,$t7,999
-    add $0,$t7,$s3
-    add $0,$t5,$s3
+Main:    addi $0,$t7,999
+    nor $t0,$t5,$s3
     add $t0,$t5,$s3
-    add $t0,$t5,$s3
-    add $t0,$t5,$s3
-    add $t0,$t5,$s3
+    addi $t0,$t5,30
+    ori $t0,$t5,30
+    sll $t3,$t6,15
+    lui $t0,15
+    bne $t0, $t1, Main
